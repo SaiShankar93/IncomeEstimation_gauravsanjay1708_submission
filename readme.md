@@ -1,1 +1,1 @@
-Credit Repayment prediction
+Credit Repayment prediction for matrix ai protocol
