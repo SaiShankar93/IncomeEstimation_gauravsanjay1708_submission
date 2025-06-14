@@ -1,3 +1,5 @@
 env/
 datasets/
 etl_model.py
+model.ipynb
+.env
