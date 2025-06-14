@@ -1,43 +1,68 @@
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.ensemble import StackingRegressor
 from sklearn.preprocessing import PolynomialFeatures
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import RobustScaler, OneHotEncoder, StandardScaler
-from sklearn.impute import SimpleImputer
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import Ridge
-from sklearn.feature_selection import SelectFromModel
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score,mean_squared_error
-from sklearn.base import BaseEstimator, TransformerMixin
 import warnings
-import joblib
 warnings.filterwarnings('ignore')
 
-# Load data
-df = pd.read_csv("data/Hackathon_bureau_data_400.csv")
+import os, psutil
+import gc
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Load and sample the dataset (reduce size for dev)
+try:
+    df = pd.read_csv("data/Hackathon_bureau_data_50000.csv", encoding='utf-8')
+except UnicodeDecodeError:
+    df = pd.read_csv("data/Hackathon_bureau_data_50000.csv", encoding='latin1')
+
+
+SAMPLE_SIZE = 20000
+df = df.sample(SAMPLE_SIZE, random_state=42)
+
+mem = df.memory_usage(deep=True).sum() / (1024 ** 2)
+print(f"📊 Sampled {SAMPLE_SIZE} rows using ~{mem:.2f} MB RAM")
+
+available_mem = psutil.virtual_memory().available / (1024 ** 2)
+if mem > 0.3 * available_mem:
+    raise MemoryError(f"❌ Not enough memory to process {SAMPLE_SIZE} rows safely.")
+
 df = df.dropna(subset=['target_income'])
 df = df.drop_duplicates()
 df = df.apply(lambda x: x.str.strip().str.lower() if x.dtype == 'object' else x)
+gc.collect()
 
-# Feature engineering
-def engineer_features(df):
-    df = df.copy()
-    numeric_cols = df.select_dtypes(include='number').columns
-    for i in range(len(numeric_cols)):
-        for j in range(i + 1, len(numeric_cols)):
-            col1, col2 = numeric_cols[i], numeric_cols[j]
-            df[f'{col1}_{col2}_interaction'] = df[col1] * df[col2]
-    important_numeric = ['age', 'income', 'credit_score']
-    for col in important_numeric:
-        if col in df.columns:
-            df[f'{col}_squared'] = df[col] ** 2
-    return df
+# Exploratory Data Analysis (EDA)
+plt.figure(figsize=(8, 4))
+sns.histplot(df['target_income'], kde=True)
+plt.title('Distribution of Target Income')
+plt.show()
 
-# Reduce cardinality
+plt.figure(figsize=(12, 10))
+sns.heatmap(df.corr(numeric_only=True), cmap='coolwarm', annot=False)
+plt.title('Correlation Heatmap')
+plt.show()
+
+for col in ['age', 'income', 'credit_score']:
+    if col in df.columns:
+        sns.scatterplot(x=col, y='target_income', data=df)
+        plt.title(f'{col} vs Target Income')
+        plt.show()
+
+sns.heatmap(df.isnull(), cbar=False)
+plt.title("Missing Values Heatmap")
+plt.show()
+
+# Feature reduction based on correlation with target
+corr_matrix = df.corr(numeric_only=True)
+target_corr = corr_matrix['target_income'].abs().sort_values(ascending=False)
+print("\n🔍 Top correlated features with target:")
+print(target_corr.head(10))
+
+# Drop features with low correlation (< 0.01)
+low_corr_cols = target_corr[target_corr < 0.01].index.tolist()
+df.drop(columns=low_corr_cols, inplace=True)
+
+# %%
 def reduce_cardinality(df, threshold=0.01):
     df = df.copy()
     for col in df.select_dtypes(include='object').columns:
@@ -46,130 +71,96 @@ def reduce_cardinality(df, threshold=0.01):
         df[col] = df[col].apply(lambda x: 'other' if x in rare_labels else x)
     return df
 
-# Prepare data
-df = engineer_features(df)
+from itertools import combinations
+
+def engineer_features(df):
+    df = df.copy()
+    important_numeric = ['age', 'income', 'credit_score']
+    for col in important_numeric:
+        if col in df.columns:
+            df[f'{col}_squared'] = df[col] ** 2
+
+    combos = list(combinations(important_numeric, 2))
+    for col1, col2 in combos:
+        if col1 in df.columns and col2 in df.columns:
+            df[f'{col1}_{col2}_interaction'] = df[col1] * df[col2]
+
+    return df
+
 X = df.drop(columns=['target_income'])
-y = df['target_income']
+y = df['target_income']  # Removed log1p transformation
 X = reduce_cardinality(X)
 
-categorical_cols = X.select_dtypes(include='object').columns.tolist()
-numeric_cols = X.select_dtypes(include='number').columns.tolist()
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Pipelines
-numeric_pipeline = Pipeline([
-    ("imputer", SimpleImputer(strategy='median')),
-    ("scaler", StandardScaler())
-])
+X_train = engineer_features(X_train)
+X_test = engineer_features(X_test)
 
-categorical_pipeline = Pipeline([
-    ("imputer", SimpleImputer(strategy='most_frequent')),
-    ("encoder", OneHotEncoder(handle_unknown='ignore', sparse_output=True))
-])
+categorical_cols = X_train.select_dtypes(include='object').columns.tolist()
+numeric_cols = X_train.select_dtypes(include='number').columns.tolist()
 
-preprocessor = ColumnTransformer([
-    ("num", numeric_pipeline, numeric_cols),
-    ("cat", categorical_pipeline, categorical_cols)
-])
+from sklearn.impute import SimpleImputer
 
-# Model
-from xgboost import XGBRegressor
-from lightgbm import LGBMRegressor
-from sklearn.feature_selection import SelectKBest, f_regression
+# Impute numeric columns
+imputer_num = SimpleImputer(strategy='median')
+X_train[numeric_cols] = imputer_num.fit_transform(X_train[numeric_cols])
+X_test[numeric_cols] = imputer_num.transform(X_test[numeric_cols])
 
-lgbm = LGBMRegressor(
-    n_estimators=200,
-    learning_rate=0.05,
-    max_depth=6,
-    num_leaves=31,
-    min_child_samples=20,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    n_jobs=-1,
-    random_state=42
-)
+# Impute categorical columns
+imputer_cat = SimpleImputer(strategy='most_frequent')
+X_train[categorical_cols] = imputer_cat.fit_transform(X_train[categorical_cols])
+X_test[categorical_cols] = imputer_cat.transform(X_test[categorical_cols])
 
-xgb = XGBRegressor(
-    n_estimators=200,
-    learning_rate=0.05,
-    max_depth=6,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    n_jobs=-1,
-    random_state=42
-)
+from sklearn.feature_selection import SelectKBest, mutual_info_regression
+selector = SelectKBest(score_func=mutual_info_regression, k='all')
+selector.fit(X_train[numeric_cols], y_train)
+feature_scores = pd.Series(selector.scores_, index=numeric_cols).sort_values(ascending=False)
 
-stacking_regressor = StackingRegressor(
-    estimators=[
-        ('lgbm', lgbm),
-        ('xgb', xgb)
-    ],
-    final_estimator=Ridge(alpha=1.0),
-    cv=5
-)
-
-# Split
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-# Preprocess for importance
-X_train_processed = preprocessor.fit_transform(X_train)
-X_test_processed = preprocessor.transform(X_test)
-
-# Get feature names
-ohe_feature_names = preprocessor.named_transformers_['cat']['encoder'].get_feature_names_out(categorical_cols)
-all_feature_names = numeric_cols + list(ohe_feature_names)
-
-# Train LGBM on full processed data
-lgbm.fit(X_train_processed, y_train)
-
-# Feature importance
-importances = lgbm.feature_importances_
-feat_imp_df = pd.DataFrame({
-    'Feature': all_feature_names,
-    'Importance': importances
-}).sort_values(by='Importance', ascending=False)
-
-# Plot top features
-plt.figure(figsize=(12, 8))
-sns.barplot(data=feat_imp_df.head(30), y='Feature', x='Importance', palette='magma')
-plt.title("Top 30 Important Features from LightGBM")
-plt.tight_layout()
+# Visualize top features
+feature_scores.head(30).plot(kind='barh', figsize=(10, 8), title='Top 30 Features')
+plt.gca().invert_yaxis()
 plt.show()
 
-# Select top N important features
-top_n = 100
-selected_features = feat_imp_df.head(top_n)['Feature'].tolist()
+# Keep only top 30 features
+top_n = 30
+selected_numeric_cols = feature_scores.head(top_n).index.tolist()
 
-# Custom transformer to keep only selected features
-class FeatureSelector(BaseEstimator, TransformerMixin):
-    def __init__(self, k=100):
-        self.k = k
-        self.selector = SelectKBest(score_func=f_regression, k=self.k)
-        
-    def fit(self, X, y=None):
-        self.selector.fit(X, y)
-        return self
-        
-    def transform(self, X):
-        return self.selector.transform(X)
+X_train = X_train[selected_numeric_cols + categorical_cols]
+X_test = X_test[selected_numeric_cols + categorical_cols]
 
-# Create the pipeline with the proper feature selector
-pipeline = Pipeline([
-    ("preprocessor", preprocessor),
-    ("feature_selector", FeatureSelector(k=100)),  # Select top 100 features
-    ("model", stacking_regressor)
-])
+# %%
+from sklearn.preprocessing import OrdinalEncoder
+encoder = OrdinalEncoder()
+X_train[categorical_cols] = encoder.fit_transform(X_train[categorical_cols])
+X_test[categorical_cols] = encoder.transform(X_test[categorical_cols])
 
-# Train
-pipeline.fit(X_train, y_train)
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
+import time
 
-# Predict and evaluate
-y_pred = pipeline.predict(X_test)
+X_train_final, X_val, y_train_final, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
+
+model = RandomForestRegressor(
+    n_estimators=200,
+    max_depth=18,
+    max_features='sqrt',
+    n_jobs=-1,
+    random_state=42
+)
+
+start = time.time()
+model.fit(X_train_final, y_train_final)
+print("✅ Model training completed in", time.time() - start, "seconds")
+
+# Evaluate on test set
+y_pred = model.predict(X_test)
+
 mae = mean_absolute_error(y_test, y_pred)
 r2 = r2_score(y_test, y_pred)
 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-print(f"✅ MAE: {mae}")
-print(f"✅ R2: {r2}")
-print(f"✅ RMSE: {rmse}")
-print("✅ Training complete.")
+
+print(f"MAE: {mae}")
+print(f"R2: {r2}")
+print(f"RMSE: {rmse}")
+print("✅ Training complete.")
