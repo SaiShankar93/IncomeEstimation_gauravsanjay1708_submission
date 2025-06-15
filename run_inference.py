@@ -91,7 +91,7 @@ if __name__ == "__main__":
         os.makedirs(output_dir, exist_ok=True)
         # Output file name based on input file name
         input_base = os.path.splitext(os.path.basename(sample_data_path))[0]
-        output_file_path = os.path.join(output_dir, f'{input_base}_predictions.csv')
+        output_file_path = os.path.join(output_dir, f'gauravsanjay1708_submissions.csv')
         output_df.to_csv(output_file_path, index=False)
         print(f"Sample predictions saved to {output_file_path}")
     except Exception as e:
