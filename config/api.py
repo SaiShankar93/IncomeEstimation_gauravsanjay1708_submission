@@ -52,7 +52,7 @@ async def predict(file: UploadFile = File(...)):
             rmse = float(np.sqrt(mean_squared_error(true_values, preds)))
             metrics = {"MAE": mae, "R2": r2, "RMSE": rmse}
         # Prepare response with full URL
-        server_url = "http://127.0.0.1:8000"  # Change if deploying elsewhere
+        server_url = "http://54.190.251.247:8000"  # Change if deploying elsewhere
         download_link = f"{server_url}/public/{output_filename}"
         return {"download_link": download_link, "metrics": metrics}
     except Exception as e:
