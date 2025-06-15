@@ -15,7 +15,7 @@ from sklearn.feature_selection import SelectKBest, f_regression , mutual_info_re
 from sklearn.feature_selection import SelectKBest, f_regression
 import warnings
 warnings.filterwarnings('ignore')
-
+import pickle
 
 df = pd.read_csv("data/Hackathon_bureau_data_50000.csv")
 df = df.dropna(subset=['target_income'])
@@ -23,22 +23,22 @@ df = df.drop_duplicates()
 df = df.apply(lambda x: x.str.strip().str.lower() if x.dtype == 'object' else x)
 
 print(df)
-def engineer_features(df):
-    df = df.copy()
-    important_numeric = ['age','var_0', 'var_1','var_2', 'var_3', 'var_13', 'var_14']
-    # Only create interactions between important features
-    for i in range(len(important_numeric)):
-        for j in range(i+1, len(important_numeric)):
-            col1, col2 = important_numeric[i], important_numeric[j]
-            if col1 in df.columns and col2 in df.columns:
-                df[f'{col1}_{col2}_interaction'] = df[col1] * df[col2]
-    # Polynomial features
-    for col in important_numeric:
-        if col in df.columns:
-            df[f'{col}_squared'] = df[col] ** 2
-    return df
+# def engineer_features(df):
+#     df = df.copy()
+#     important_numeric = ['age','var_0', 'var_1','var_2', 'var_3', 'var_13', 'var_14']
+#     # Only create interactions between important features
+#     for i in range(len(important_numeric)):
+#         for j in range(i+1, len(important_numeric)):
+#             col1, col2 = important_numeric[i], important_numeric[j]
+#             if col1 in df.columns and col2 in df.columns:
+#                 df[f'{col1}_{col2}_interaction'] = df[col1] * df[col2]
+#     # Polynomial features
+#     for col in important_numeric:
+#         if col in df.columns:
+#             df[f'{col}_squared'] = df[col] ** 2
+#     return df
 
-df = engineer_features(df)
+# df = engineer_features(df)
 
 # --- Remove Outliers in Target ---
 q_low = df['target_income'].quantile(0.01)
@@ -63,7 +63,7 @@ X = df.drop(columns=['target_income'])
 y = df['target_income']
 
 X = reduce_cardinality(X)
-df = engineer_features(df)
+# df = engineer_features(df)
 
 
 categorical_cols = X.select_dtypes(include='object').columns.tolist()
@@ -163,3 +163,8 @@ y_pred = pipeline.predict(X_test)
 print("MAE:", mean_absolute_error(y_test, y_pred))
 print("R2:", r2_score(y_test, y_pred))
 print("RMSE:", np.sqrt(mean_squared_error(y_test, y_pred)))
+
+# Save the trained pipeline for inference
+import joblib
+joblib.dump(pipeline, 'full_pipeline.joblib')
+print("✅ Pipeline saved as full_pipeline.joblib.")

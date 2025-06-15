@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Prediction Uploader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #43cea2 0%, #185a9d 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Montserrat', sans-serif;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.18);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 48px 36px 36px 36px;
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+            transition: box-shadow 0.3s;
+        }
+        .glass-card:hover {
+            box-shadow: 0 16px 48px 0 rgba(31, 38, 135, 0.45);
+        }
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 18px;
+            letter-spacing: 1px;
+            text-shadow: 0 2px 8px rgba(24,90,157,0.18);
+        }
+        label {
+            display: block;
+            margin-bottom: 14px;
+            font-weight: 700;
+            color: #185a9d;
+            font-size: 1.1rem;
+        }
+        input[type="file"] {
+            margin-bottom: 28px;
+            border: none;
+            border-radius: 10px;
+            padding: 10px;
+            width: 100%;
+            background: rgba(255,255,255,0.5);
+            font-size: 1rem;
+            color: #185a9d;
+        }
+        button {
+            background: linear-gradient(90deg, #43cea2 0%, #185a9d 100%);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 14px 36px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(24,90,157,0.12);
+            transition: background 0.3s, transform 0.2s;
+        }
+        button:hover {
+            background: linear-gradient(90deg, #185a9d 0%, #43cea2 100%);
+            transform: translateY(-2px) scale(1.03);
+        }
+        .response {
+            margin-top: 36px;
+            padding: 24px 18px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(24,90,157,0.10);
+            text-align: left;
+            color: #185a9d;
+            font-size: 1.08rem;
+            word-break: break-word;
+        }
+        .metrics-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            background: rgba(255,255,255,0.7);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .metrics-table th, .metrics-table td {
+            border: none;
+            padding: 10px 14px;
+            text-align: center;
+        }
+        .metrics-table th {
+            background: #185a9d;
+            color: #fff;
+            font-weight: 700;
+        }
+        .metrics-table td {
+            color: #185a9d;
+            font-weight: 600;
+        }
+        .download-link {
+            display: inline-block;
+            margin-top: 18px;
+            background: linear-gradient(90deg, #43cea2 0%, #185a9d 100%);
+            color: #fff;
+            padding: 12px 28px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.08rem;
+            box-shadow: 0 2px 8px rgba(24,90,157,0.12);
+            transition: background 0.3s, transform 0.2s;
+        }
+        .download-link:hover {
+            background: linear-gradient(90deg, #185a9d 0%, #43cea2 100%);
+            transform: scale(1.04);
+        }
+        .error {
+            color: #d32f2f;
+            margin-top: 18px;
+            font-weight: 600;
+            background: rgba(255,255,255,0.4);
+            border-radius: 8px;
+            padding: 10px;
+        }
+        @media (max-width: 600px) {
+            .glass-card {
+                padding: 24px 8px 18px 8px;
+                max-width: 98vw;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="glass-card">
+        <h1>Credit Repayment Prediction</h1>
+        <form id="uploadForm">
+            <label for="csvFile">Select CSV file:</label>
+            <input type="file" id="csvFile" name="file" accept=".csv" required />
+            <button type="submit">Predict</button>
+        </form>
+        <div id="response" class="response" style="display:none;"></div>
+        <div id="error" class="error"></div>
+    </div>
+    <script>
+        const form = document.getElementById('uploadForm');
+        const responseDiv = document.getElementById('response');
+        const errorDiv = document.getElementById('error');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            responseDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            const fileInput = document.getElementById('csvFile');
+            if (!fileInput.files.length) {
+                errorDiv.textContent = 'Please select a CSV file.';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            try {
+                const res = await fetch('/predict/', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!res.ok) {
+                    throw new Error('Prediction failed. Please check your file and try again.');
+                }
+                const data = await res.json();
+                let html = '';
+                if (data.download_link) {
+                    html += `<a class=\"download-link\" href=\"${data.download_link}\" target=\"_blank\">Download Predictions CSV</a>`;
+                }
+                if (data.metrics && Object.keys(data.metrics).length > 0) {
+                    html += '<h3 style="margin-top:22px; color:#185a9d;">Metrics</h3>';
+                    html += '<table class=\"metrics-table\">';
+                    html += '<tr><th>MAE</th><th>R2</th><th>RMSE</th></tr>';
+                    html += `<tr><td>${data.metrics.MAE?.toFixed(4) ?? '-'}</td><td>${data.metrics.R2?.toFixed(4) ?? '-'}</td><td>${data.metrics.RMSE?.toFixed(4) ?? '-'}</td></tr>`;
+                    html += '</table>';
+                }
+                responseDiv.innerHTML = html;
+                responseDiv.style.display = 'block';
+            } catch (err) {
+                errorDiv.textContent = err.message;
+            }
+        });
+    </script>
+</body>
+</html> 
